@@ -1,4 +1,5 @@
 import cv2
+import time
 from src.hand_tracker import HandTracker
 
 
@@ -17,18 +18,32 @@ def main():
             break
 
         frame = cv2.flip(frame, 1)
-        frame = tracker.find_hands(frame)
+        timestamp_ms = int(time.time() * 1000)
+
+        frame = tracker.find_hands(frame, timestamp_ms)
         landmarks = tracker.find_position(frame)
 
         if landmarks:
+            fingers = tracker.fingers_up(landmarks)
+
             _, x, y = landmarks[8]
             cv2.putText(
                 frame,
-                f"Index Finger: ({x}, {y})",
+                f"Index: ({x}, {y})",
                 (10, 40),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.8,
                 (0, 255, 0),
+                2
+            )
+
+            cv2.putText(
+                frame,
+                f"Fingers: {fingers}",
+                (10, 80),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (255, 255, 0),
                 2
             )
 

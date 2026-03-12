@@ -22,6 +22,7 @@ class HandTracker:
 
         self.detector = vision.HandLandmarker.create_from_options(options)
         self.last_result = None
+        self.tip_ids = [4, 8, 12, 16, 20]
 
     def find_hands(self, frame, timestamp_ms):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -40,8 +41,17 @@ class HandTracker:
                 cx, cy = int(lm.x * w), int(lm.y * h)
                 landmark_list.append((idx, cx, cy))
 
-                if draw and idx == 8:
+                if draw and idx in self.tip_ids:
                     cv2.circle(frame, (cx, cy), 10, (255, 0, 255), cv2.FILLED)
+                    cv2.putText(
+                        frame,
+                        str(idx),
+                        (cx + 5, cy - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5,
+                        (0, 255, 255),
+                        1
+                    )
 
             if draw:
                 connections = self.vision.HandLandmarksConnections.HAND_CONNECTIONS
@@ -55,3 +65,24 @@ class HandTracker:
                     cv2.line(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
         return landmark_list
+
+    def fingers_up(self, landmarks):
+        if not landmarks:
+            return []
+
+        fingers = []
+
+        # Thumb
+        if landmarks[4][1] < landmarks[3][1]:
+            fingers.append(1)
+        else:
+            fingers.append(0)
+
+        # Index, Middle, Ring, Pinky
+        for tip_id in [8, 12, 16, 20]:
+            if landmarks[tip_id][2] < landmarks[tip_id - 2][2]:
+                fingers.append(1)
+            else:
+                fingers.append(0)
+
+        return fingers
