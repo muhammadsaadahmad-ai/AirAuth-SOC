@@ -33,7 +33,10 @@ class HandTracker:
 
     def find_hands(self, frame, timestamp_ms):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        mp_image = self.mp.Image(image_format=self.mp.ImageFormat.SRGB, data=rgb)
+        mp_image = self.mp.Image(
+            image_format=self.mp.ImageFormat.SRGB,
+            data=rgb
+        )
         self.last_result = self.detector.detect_for_video(mp_image, timestamp_ms)
         return frame
 
@@ -85,7 +88,7 @@ class HandTracker:
 
         fingers = []
 
-        # Thumb logic changes for left/right hand
+        # Thumb
         if hand_label == "Right":
             fingers.append(1 if landmarks[4][1] < landmarks[3][1] else 0)
         else:

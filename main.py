@@ -11,6 +11,11 @@ def main():
         print("Error: Could not access webcam.")
         return
 
+    canvas = None
+    prev_x, prev_y = 0, 0
+    draw_color = (0, 0, 255)
+    brush_thickness = 5
+
     while True:
         success, frame = cap.read()
         if not success:
@@ -18,6 +23,10 @@ def main():
             break
 
         frame = cv2.flip(frame, 1)
+
+        if canvas is None:
+            canvas = frame.copy() * 0
+
         timestamp_ms = int(time.time() * 1000)
 
         frame = tracker.find_hands(frame, timestamp_ms)
@@ -32,6 +41,19 @@ def main():
                 finger_text = ", ".join(up_finger_names)
             else:
                 finger_text = "No fingers up"
+
+            # Index fingertip position
+            x, y = landmarks[8][1], landmarks[8][2]
+
+            # DRAW MODE: only index finger up
+            if fingers == [0, 1, 0, 0, 0]:
+                if prev_x == 0 and prev_y == 0:
+                    prev_x, prev_y = x, y
+
+                cv2.line(canvas, (prev_x, prev_y), (x, y), draw_color, brush_thickness)
+                prev_x, prev_y = x, y
+            else:
+                prev_x, prev_y = 0, 0
 
             cv2.putText(
                 frame,
@@ -63,12 +85,43 @@ def main():
                 2
             )
 
+            if fingers == [0, 1, 0, 0, 0]:
+                cv2.putText(
+                    frame,
+                    "Mode: DRAW",
+                    (10, 160),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8,
+                    (0, 0, 255),
+                    2
+                )
+            else:
+                cv2.putText(
+                    frame,
+                    "Mode: IDLE",
+                    (10, 160),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8,
+                    (200, 200, 200),
+                    2
+                )
+
+        else:
+            prev_x, prev_y = 0, 0
+
+        gray_canvas = cv2.cvtColor(canvas, cv2.COLOR_BGR2GRAY)
+        _, mask = cv2.threshold(gray_canvas, 20, 255, cv2.THRESH_BINARY_INV)
+        mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+
+        frame = cv2.bitwise_and(frame, mask)
+        frame = cv2.bitwise_or(frame, canvas)
+
         cv2.putText(
             frame,
-            "AirAuth-SOC | Press Q to quit",
+            "AirAuth-SOC | Index only = Draw | Press Q to quit",
             (10, 470),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
+            0.6,
             (255, 255, 255),
             2
         )
