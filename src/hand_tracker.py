@@ -23,6 +23,13 @@ class HandTracker:
         self.detector = vision.HandLandmarker.create_from_options(options)
         self.last_result = None
         self.tip_ids = [4, 8, 12, 16, 20]
+        self.tip_names = {
+            4: "Thumb",
+            8: "Index",
+            12: "Middle",
+            16: "Ring",
+            20: "Pinky"
+        }
 
     def find_hands(self, frame, timestamp_ms):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -45,7 +52,7 @@ class HandTracker:
                     cv2.circle(frame, (cx, cy), 10, (255, 0, 255), cv2.FILLED)
                     cv2.putText(
                         frame,
-                        str(idx),
+                        self.tip_names[idx],
                         (cx + 5, cy - 5),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.5,
@@ -66,23 +73,36 @@ class HandTracker:
 
         return landmark_list
 
-    def fingers_up(self, landmarks):
+    def get_hand_label(self):
+        if self.last_result and self.last_result.handedness:
+            category = self.last_result.handedness[0][0]
+            return category.category_name
+        return "Unknown"
+
+    def fingers_up(self, landmarks, hand_label="Right"):
         if not landmarks:
             return []
 
         fingers = []
 
-        # Thumb
-        if landmarks[4][1] < landmarks[3][1]:
-            fingers.append(1)
+        # Thumb logic changes for left/right hand
+        if hand_label == "Right":
+            fingers.append(1 if landmarks[4][1] < landmarks[3][1] else 0)
         else:
-            fingers.append(0)
+            fingers.append(1 if landmarks[4][1] > landmarks[3][1] else 0)
 
         # Index, Middle, Ring, Pinky
         for tip_id in [8, 12, 16, 20]:
-            if landmarks[tip_id][2] < landmarks[tip_id - 2][2]:
-                fingers.append(1)
-            else:
-                fingers.append(0)
+            fingers.append(1 if landmarks[tip_id][2] < landmarks[tip_id - 2][2] else 0)
 
         return fingers
+
+    def get_up_finger_names(self, fingers):
+        names = ["Thumb", "Index", "Middle", "Ring", "Pinky"]
+        up_names = []
+
+        for i in range(len(fingers)):
+            if fingers[i] == 1:
+                up_names.append(names[i])
+
+        return up_names

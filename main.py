@@ -24,12 +24,18 @@ def main():
         landmarks = tracker.find_position(frame)
 
         if landmarks:
-            fingers = tracker.fingers_up(landmarks)
+            hand_label = tracker.get_hand_label()
+            fingers = tracker.fingers_up(landmarks, hand_label)
+            up_finger_names = tracker.get_up_finger_names(fingers)
 
-            _, x, y = landmarks[8]
+            if up_finger_names:
+                finger_text = ", ".join(up_finger_names)
+            else:
+                finger_text = "No fingers up"
+
             cv2.putText(
                 frame,
-                f"Index: ({x}, {y})",
+                f"Hand: {hand_label}",
                 (10, 40),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.8,
@@ -39,11 +45,21 @@ def main():
 
             cv2.putText(
                 frame,
-                f"Fingers: {fingers}",
+                f"Up Fingers: {finger_text}",
                 (10, 80),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.8,
+                0.7,
                 (255, 255, 0),
+                2
+            )
+
+            cv2.putText(
+                frame,
+                f"Finger State: {fingers}",
+                (10, 120),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 200, 100),
                 2
             )
 
