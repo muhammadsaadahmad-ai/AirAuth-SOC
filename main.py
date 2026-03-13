@@ -1,5 +1,7 @@
 import cv2
 import time
+import os
+from datetime import datetime
 from src.hand_tracker import HandTracker
 
 
@@ -169,7 +171,9 @@ def main():
                 mode_text = "SAVE"
 
                 if current_time - last_save_time > save_cooldown:
-                    filename = f"drawing_{save_count}.png"
+                    os.makedirs("screenshots", exist_ok=True)
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    filename = f"screenshots/airauth_{timestamp}_{save_count}.png"
                     cv2.imwrite(filename, canvas)
                     save_count += 1
                     last_save_time = current_time
@@ -213,35 +217,51 @@ def main():
 
         cv2.rectangle(frame, (10, 70), (620, 190), (20, 20, 20), -1)
 
-        cv2.putText(frame, f"Hand: {hand_label}", (20, 100),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        cv2.putText(
+            frame, f"Hand: {hand_label}", (20, 100),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2
+        )
 
-        cv2.putText(frame, f"Up Fingers: {finger_text}", (20, 130),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.62, (255, 255, 0), 2)
+        cv2.putText(
+            frame, f"Up Fingers: {finger_text}", (20, 130),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.62, (255, 255, 0), 2
+        )
 
-        cv2.putText(frame, f"Mode: {mode_text}", (20, 160),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        cv2.putText(
+            frame, f"Mode: {mode_text}", (20, 160),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2
+        )
 
-        cv2.putText(frame, f"Color: {color_names[color_index]}", (250, 100),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, draw_color, 2)
+        cv2.putText(
+            frame, f"Color: {color_names[color_index]}", (250, 100),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.7, draw_color, 2
+        )
 
         lock_text = "LOCKED" if locked else "UNLOCKED"
         lock_color = (0, 0, 255) if locked else (0, 255, 0)
-        cv2.putText(frame, f"State: {lock_text}", (250, 130),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, lock_color, 2)
+        cv2.putText(
+            frame, f"State: {lock_text}", (250, 130),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.7, lock_color, 2
+        )
 
-        cv2.putText(frame, f"FPS: {int(fps)}", (500, 160),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (200, 200, 200), 2)
+        cv2.putText(
+            frame, f"FPS: {int(fps)}", (500, 160),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.65, (200, 200, 200), 2
+        )
 
-        cv2.putText(frame,
-                    "Index=Aim | Top Bar+Index=Color | Index+Middle=Draw",
-                    (10, 445),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.52, (255, 255, 255), 2)
+        cv2.putText(
+            frame,
+            "Index=Aim | Top Bar+Index=Color | Index+Middle=Draw",
+            (10, 445),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.52, (255, 255, 255), 2
+        )
 
-        cv2.putText(frame,
-                    "Middle=Erase | Pinky=Save | Thumb+Pinky=Lock | All=Clear | Q=Quit",
-                    (10, 470),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.50, (255, 255, 255), 2)
+        cv2.putText(
+            frame,
+            "Middle=Erase | Pinky=Save | Thumb+Pinky=Lock | All=Clear | Q=Quit",
+            (10, 470),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.50, (255, 255, 255), 2
+        )
 
         cv2.imshow("AirAuth-SOC", frame)
 
