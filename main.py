@@ -1,13 +1,20 @@
 import cv2
 import time
-import os
-from datetime import datetime
+
 from src.hand_tracker import HandTracker
+from src.canvas_manager import CanvasManager
+from src.gesture_logic import GestureLogic
+from src.auth_manager import AuthManager
+from src.utils import ActionLogger
 
 
 def main():
     cap = cv2.VideoCapture(0)
     tracker = HandTracker()
+    canvas_manager = CanvasManager()
+    gesture_logic = GestureLogic()
+    auth_manager = AuthManager()
+    logger = ActionLogger()
 
     if not cap.isOpened():
         print("Error: Could not access webcam.")
@@ -16,7 +23,6 @@ def main():
     cap.set(3, 640)
     cap.set(4, 480)
 
-    canvas = None
     prev_x, prev_y = 0, 0
     smooth_x, smooth_y = 0, 0
 
@@ -24,27 +30,9 @@ def main():
     eraser_thickness = 30
     smoothing = 3
 
-    colors = [
-        (0, 0, 255),    # Red
-        (255, 0, 0),    # Blue
-        (0, 255, 0),    # Green
-        (0, 255, 255),  # Yellow
-        (255, 255, 255) # White
-    ]
-    color_names = ["RED", "BLUE", "GREEN", "YELLOW", "WHITE"]
-
-    color_boxes = [
-        (0, 128),
-        (128, 256),
-        (256, 384),
-        (384, 512),
-        (512, 640)
-    ]
-
     color_index = 0
-    draw_color = colors[color_index]
+    draw_color = gesture_logic.colors[color_index]
 
-    locked = False
     save_count = 0
 
     last_time = 0
@@ -65,9 +53,7 @@ def main():
             break
 
         frame = cv2.flip(frame, 1)
-
-        if canvas is None:
-            canvas = frame.copy() * 0
+        canvas_manager.initialize(frame)
 
         current_time = time.time()
         timestamp_ms = int(current_time * 1000)
@@ -97,115 +83,93 @@ def main():
 
             cv2.circle(frame, (smooth_x, smooth_y), 8, (0, 0, 255), cv2.FILLED)
 
-            # COLOR SELECT -> only Index finger + top bar + cooldown
-            if fingers == [0, 1, 0, 0, 0] and smooth_y < 60:
-                mode_text = "COLOR SELECT"
+            mode = gesture_logic.get_mode(
+                fingers,
+                auth_manager.is_locked(),
+                smooth_y
+            )
+            mode_text = mode
 
+            if mode == "COLOR_SELECT":
                 if current_time - last_color_change_time > color_cooldown:
-                    for i, (start_x, end_x) in enumerate(color_boxes):
-                        if start_x <= smooth_x < end_x:
-                            color_index = i
-                            draw_color = colors[color_index]
-                            last_color_change_time = current_time
-                            break
-
+                    selected_index, selected_color, _ = gesture_logic.get_selected_color(smooth_x)
+                    if selected_index is not None:
+                        color_index = selected_index
+                        draw_color = selected_color
+                        last_color_change_time = current_time
+                        logger.log(
+                            "COLOR_CHANGED",
+                            f"color={gesture_logic.color_names[color_index]}"
+                        )
                 prev_x, prev_y = 0, 0
 
-            # DRAW -> Index + Middle
-            elif fingers == [0, 1, 1, 0, 0] and not locked:
-                mode_text = "DRAW"
-
+            elif mode == "DRAW":
                 if prev_x == 0 and prev_y == 0:
                     prev_x, prev_y = smooth_x, smooth_y
 
-                cv2.line(
-                    canvas,
-                    (prev_x, prev_y),
-                    (smooth_x, smooth_y),
+                canvas_manager.draw_line(
+                    prev_x, prev_y,
+                    smooth_x, smooth_y,
                     draw_color,
-                    brush_thickness,
-                    cv2.LINE_AA
+                    brush_thickness
                 )
-                cv2.circle(canvas, (smooth_x, smooth_y), brush_thickness // 2, draw_color, cv2.FILLED)
-                cv2.circle(canvas, (prev_x, prev_y), brush_thickness // 2, draw_color, cv2.FILLED)
-
                 prev_x, prev_y = smooth_x, smooth_y
 
-            # AIM -> Index only
-            elif fingers == [0, 1, 0, 0, 0]:
-                mode_text = "AIM"
+            elif mode == "AIM":
                 prev_x, prev_y = 0, 0
 
-            # ERASE -> Middle only
-            elif fingers == [0, 0, 1, 0, 0] and not locked:
-                mode_text = "ERASE"
-
+            elif mode == "ERASE":
                 if prev_x == 0 and prev_y == 0:
                     prev_x, prev_y = smooth_x, smooth_y
 
-                cv2.line(
-                    canvas,
-                    (prev_x, prev_y),
-                    (smooth_x, smooth_y),
-                    (0, 0, 0),
-                    eraser_thickness,
-                    cv2.LINE_AA
+                canvas_manager.erase_line(
+                    prev_x, prev_y,
+                    smooth_x, smooth_y,
+                    eraser_thickness
                 )
-                cv2.circle(canvas, (smooth_x, smooth_y), eraser_thickness // 2, (0, 0, 0), cv2.FILLED)
-                cv2.circle(frame, (smooth_x, smooth_y), eraser_thickness // 2, (255, 255, 255), 2)
-
+                cv2.circle(
+                    frame,
+                    (smooth_x, smooth_y),
+                    eraser_thickness // 2,
+                    (255, 255, 255),
+                    2
+                )
                 prev_x, prev_y = smooth_x, smooth_y
 
-            # CLEAR -> All fingers
-            elif fingers == [1, 1, 1, 1, 1]:
-                mode_text = "CLEAR"
-
+            elif mode == "CLEAR":
                 if current_time - last_clear_time > clear_cooldown:
-                    canvas = frame.copy() * 0
+                    canvas_manager.clear(frame)
                     last_clear_time = current_time
-
+                    logger.log("CANVAS_CLEARED", "gesture=all_fingers")
                 prev_x, prev_y = 0, 0
 
-            # SAVE -> Pinky only
-            elif fingers == [0, 0, 0, 0, 1]:
-                mode_text = "SAVE"
-
+            elif mode == "SAVE":
                 if current_time - last_save_time > save_cooldown:
-                    os.makedirs("screenshots", exist_ok=True)
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    filename = f"screenshots/airauth_{timestamp}_{save_count}.png"
-                    cv2.imwrite(filename, canvas)
+                    filename = canvas_manager.save_screenshot(save_count)
+                    logger.log("SCREENSHOT_SAVED", f"file={filename}")
                     save_count += 1
                     last_save_time = current_time
-
                 prev_x, prev_y = 0, 0
 
-            # LOCK / UNLOCK -> Thumb + Pinky
-            elif fingers == [1, 0, 0, 0, 1]:
-                mode_text = "LOCK/UNLOCK"
-
+            elif mode == "LOCK_TOGGLE":
                 if current_time - last_lock_toggle_time > lock_cooldown:
-                    locked = not locked
+                    auth_manager.toggle_lock()
                     last_lock_toggle_time = current_time
-
+                    state = auth_manager.get_state_text()
+                    logger.log("LOCK_STATE_CHANGED", f"state={state}")
                 prev_x, prev_y = 0, 0
 
             else:
                 prev_x, prev_y = 0, 0
+
         else:
             prev_x, prev_y = 0, 0
             smooth_x, smooth_y = 0, 0
 
-        gray = cv2.cvtColor(canvas, cv2.COLOR_BGR2GRAY)
-        _, mask = cv2.threshold(gray, 20, 255, cv2.THRESH_BINARY_INV)
-        mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+        frame = canvas_manager.merge_with_frame(frame)
 
-        frame = cv2.bitwise_and(frame, mask)
-        frame = cv2.bitwise_or(frame, canvas)
-
-        # Top color bar
-        for i, c in enumerate(colors):
-            start_x, end_x = color_boxes[i]
+        for i, c in enumerate(gesture_logic.colors):
+            start_x, end_x = gesture_logic.color_boxes[i]
             cv2.rectangle(frame, (start_x, 0), (end_x, 60), c, -1)
 
             if i == color_index:
@@ -218,49 +182,83 @@ def main():
         cv2.rectangle(frame, (10, 70), (620, 190), (20, 20, 20), -1)
 
         cv2.putText(
-            frame, f"Hand: {hand_label}", (20, 100),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2
+            frame,
+            f"Hand: {hand_label}",
+            (20, 100),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 255, 0),
+            2
         )
 
         cv2.putText(
-            frame, f"Up Fingers: {finger_text}", (20, 130),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.62, (255, 255, 0), 2
+            frame,
+            f"Up Fingers: {finger_text}",
+            (20, 130),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.62,
+            (255, 255, 0),
+            2
         )
 
         cv2.putText(
-            frame, f"Mode: {mode_text}", (20, 160),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2
+            frame,
+            f"Mode: {mode_text}",
+            (20, 160),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 0, 255),
+            2
         )
 
         cv2.putText(
-            frame, f"Color: {color_names[color_index]}", (250, 100),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.7, draw_color, 2
-        )
-
-        lock_text = "LOCKED" if locked else "UNLOCKED"
-        lock_color = (0, 0, 255) if locked else (0, 255, 0)
-        cv2.putText(
-            frame, f"State: {lock_text}", (250, 130),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.7, lock_color, 2
+            frame,
+            f"Color: {gesture_logic.color_names[color_index]}",
+            (250, 100),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            draw_color,
+            2
         )
 
         cv2.putText(
-            frame, f"FPS: {int(fps)}", (500, 160),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.65, (200, 200, 200), 2
+            frame,
+            f"State: {auth_manager.get_state_text()}",
+            (250, 130),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            auth_manager.get_state_color(),
+            2
+        )
+
+        cv2.putText(
+            frame,
+            f"FPS: {int(fps)}",
+            (500, 160),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            (200, 200, 200),
+            2
         )
 
         cv2.putText(
             frame,
             "Index=Aim | Top Bar+Index=Color | Index+Middle=Draw",
             (10, 445),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.52, (255, 255, 255), 2
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.52,
+            (255, 255, 255),
+            2
         )
 
         cv2.putText(
             frame,
             "Middle=Erase | Pinky=Save | Thumb+Pinky=Lock | All=Clear | Q=Quit",
             (10, 470),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.50, (255, 255, 255), 2
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.50,
+            (255, 255, 255),
+            2
         )
 
         cv2.imshow("AirAuth-SOC", frame)
@@ -269,8 +267,9 @@ def main():
         if key == ord('q'):
             break
         elif key == ord('c'):
-            canvas = frame.copy() * 0
+            canvas_manager.clear(frame)
             prev_x, prev_y = 0, 0
+            logger.log("CANVAS_CLEARED", "gesture=keyboard_c")
 
     cap.release()
     cv2.destroyAllWindows()
