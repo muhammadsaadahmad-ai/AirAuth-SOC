@@ -11,10 +11,18 @@ def main():
         print("Error: Could not access webcam.")
         return
 
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
     canvas = None
     prev_x, prev_y = 0, 0
+    smooth_x, smooth_y = 0, 0
+
     draw_color = (0, 0, 255)
-    brush_thickness = 5
+    brush_thickness = 7
+    smoothing = 3
+
+    last_time = 0
 
     while True:
         success, frame = cap.read()
@@ -27,87 +35,67 @@ def main():
         if canvas is None:
             canvas = frame.copy() * 0
 
-        timestamp_ms = int(time.time() * 1000)
+        current_time = time.time()
+        timestamp_ms = int(current_time * 1000)
 
         frame = tracker.find_hands(frame, timestamp_ms)
-        landmarks = tracker.find_position(frame)
+        landmarks = tracker.find_position(frame, draw=True)
 
-        if landmarks:
+        mode_text = "IDLE"
+        finger_text = "No fingers up"
+        hand_label = "Unknown"
+
+        if tracker.is_valid_hand(landmarks):
             hand_label = tracker.get_hand_label()
             fingers = tracker.fingers_up(landmarks, hand_label)
             up_finger_names = tracker.get_up_finger_names(fingers)
 
             if up_finger_names:
                 finger_text = ", ".join(up_finger_names)
-            else:
-                finger_text = "No fingers up"
 
-            # Index fingertip position
             x, y = landmarks[8][1], landmarks[8][2]
 
-            # DRAW MODE: only index finger up
-            if fingers == [0, 1, 0, 0, 0]:
-                if prev_x == 0 and prev_y == 0:
-                    prev_x, prev_y = x, y
+            if smooth_x == 0 and smooth_y == 0:
+                smooth_x, smooth_y = x, y
 
-                cv2.line(canvas, (prev_x, prev_y), (x, y), draw_color, brush_thickness)
-                prev_x, prev_y = x, y
+            smooth_x = int(smooth_x + (x - smooth_x) / smoothing)
+            smooth_y = int(smooth_y + (y - smooth_y) / smoothing)
+
+            cv2.circle(frame, (smooth_x, smooth_y), 8, (0, 0, 255), cv2.FILLED)
+
+            # DRAW MODE: Index + Middle only
+            if fingers == [0, 1, 1, 0, 0]:
+                mode_text = "DRAW"
+
+                if prev_x == 0 and prev_y == 0:
+                    prev_x, prev_y = smooth_x, smooth_y
+
+                cv2.line(
+                    canvas,
+                    (prev_x, prev_y),
+                    (smooth_x, smooth_y),
+                    draw_color,
+                    brush_thickness,
+                    cv2.LINE_AA
+                )
+
+                # Fill small gaps between segments
+                cv2.circle(canvas, (smooth_x, smooth_y), brush_thickness // 2, draw_color, cv2.FILLED)
+                cv2.circle(canvas, (prev_x, prev_y), brush_thickness // 2, draw_color, cv2.FILLED)
+
+                prev_x, prev_y = smooth_x, smooth_y
+
+            # AIM MODE: only index finger
+            elif fingers == [0, 1, 0, 0, 0]:
+                mode_text = "AIM"
+                prev_x, prev_y = 0, 0
+
             else:
                 prev_x, prev_y = 0, 0
 
-            cv2.putText(
-                frame,
-                f"Hand: {hand_label}",
-                (10, 40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.8,
-                (0, 255, 0),
-                2
-            )
-
-            cv2.putText(
-                frame,
-                f"Up Fingers: {finger_text}",
-                (10, 80),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (255, 255, 0),
-                2
-            )
-
-            cv2.putText(
-                frame,
-                f"Finger State: {fingers}",
-                (10, 120),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (255, 200, 100),
-                2
-            )
-
-            if fingers == [0, 1, 0, 0, 0]:
-                cv2.putText(
-                    frame,
-                    "Mode: DRAW",
-                    (10, 160),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8,
-                    (0, 0, 255),
-                    2
-                )
-            else:
-                cv2.putText(
-                    frame,
-                    "Mode: IDLE",
-                    (10, 160),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8,
-                    (200, 200, 200),
-                    2
-                )
-
         else:
             prev_x, prev_y = 0, 0
+            smooth_x, smooth_y = 0, 0
 
         gray_canvas = cv2.cvtColor(canvas, cv2.COLOR_BGR2GRAY)
         _, mask = cv2.threshold(gray_canvas, 20, 255, cv2.THRESH_BINARY_INV)
@@ -116,20 +104,71 @@ def main():
         frame = cv2.bitwise_and(frame, mask)
         frame = cv2.bitwise_or(frame, canvas)
 
+        fps = 0
+        if last_time != 0:
+            fps = 1 / (current_time - last_time)
+        last_time = current_time
+
+        cv2.rectangle(frame, (10, 10), (500, 170), (20, 20, 20), -1)
+
         cv2.putText(
             frame,
-            "AirAuth-SOC | Index only = Draw | Press Q to quit",
+            f"Hand: {hand_label}",
+            (20, 40),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 255, 0),
+            2
+        )
+
+        cv2.putText(
+            frame,
+            f"Up Fingers: {finger_text}",
+            (20, 75),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            (255, 255, 0),
+            2
+        )
+
+        cv2.putText(
+            frame,
+            f"Mode: {mode_text}",
+            (20, 110),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 0, 255),
+            2
+        )
+
+        cv2.putText(
+            frame,
+            f"FPS: {int(fps)}",
+            (380, 110),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (200, 200, 200),
+            2
+        )
+
+        cv2.putText(
+            frame,
+            "Index = Aim | Index+Middle = Draw | C = Clear | Q = Quit",
             (10, 470),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
+            0.56,
             (255, 255, 255),
             2
         )
 
         cv2.imshow("AirAuth-SOC", frame)
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
             break
+        elif key == ord('c'):
+            canvas = frame.copy() * 0
+            prev_x, prev_y = 0, 0
 
     cap.release()
     cv2.destroyAllWindows()

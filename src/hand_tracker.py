@@ -1,4 +1,5 @@
 import cv2
+import math
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
@@ -8,28 +9,20 @@ class HandTracker:
     def __init__(self, model_path="assets/hand_landmarker.task", num_hands=1):
         self.mp = mp
         self.vision = vision
-        self.running_mode = vision.RunningMode.VIDEO
 
         base_options = python.BaseOptions(model_asset_path=model_path)
         options = vision.HandLandmarkerOptions(
             base_options=base_options,
-            running_mode=self.running_mode,
+            running_mode=vision.RunningMode.VIDEO,
             num_hands=num_hands,
-            min_hand_detection_confidence=0.5,
-            min_hand_presence_confidence=0.5,
-            min_tracking_confidence=0.5
+            min_hand_detection_confidence=0.7,
+            min_hand_presence_confidence=0.7,
+            min_tracking_confidence=0.7
         )
 
         self.detector = vision.HandLandmarker.create_from_options(options)
         self.last_result = None
         self.tip_ids = [4, 8, 12, 16, 20]
-        self.tip_names = {
-            4: "Thumb",
-            8: "Index",
-            12: "Middle",
-            16: "Ring",
-            20: "Pinky"
-        }
 
     def find_hands(self, frame, timestamp_ms):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -51,19 +44,11 @@ class HandTracker:
                 cx, cy = int(lm.x * w), int(lm.y * h)
                 landmark_list.append((idx, cx, cy))
 
-                if draw and idx in self.tip_ids:
-                    cv2.circle(frame, (cx, cy), 10, (255, 0, 255), cv2.FILLED)
-                    cv2.putText(
-                        frame,
-                        self.tip_names[idx],
-                        (cx + 5, cy - 5),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5,
-                        (0, 255, 255),
-                        1
-                    )
+            if draw and len(landmark_list) == 21:
+                for idx in self.tip_ids:
+                    cx, cy = landmark_list[idx][1], landmark_list[idx][2]
+                    cv2.circle(frame, (cx, cy), 7, (255, 0, 255), cv2.FILLED)
 
-            if draw:
                 connections = self.vision.HandLandmarksConnections.HAND_CONNECTIONS
                 for connection in connections:
                     start_idx = connection.start
@@ -78,13 +63,31 @@ class HandTracker:
 
     def get_hand_label(self):
         if self.last_result and self.last_result.handedness:
-            category = self.last_result.handedness[0][0]
-            return category.category_name
+            label = self.last_result.handedness[0][0].category_name
+
+            # webcam frame flipped
+            if label == "Left":
+                return "Right"
+            elif label == "Right":
+                return "Left"
+
+            return label
+
         return "Unknown"
 
+    def is_valid_hand(self, landmarks):
+        if not landmarks or len(landmarks) != 21:
+            return False
+
+        wrist_x, wrist_y = landmarks[0][1], landmarks[0][2]
+        middle_mcp_x, middle_mcp_y = landmarks[9][1], landmarks[9][2]
+
+        distance = abs(wrist_x - middle_mcp_x) + abs(wrist_y - middle_mcp_y)
+        return distance > 25
+
     def fingers_up(self, landmarks, hand_label="Right"):
-        if not landmarks:
-            return []
+        if not self.is_valid_hand(landmarks):
+            return [0, 0, 0, 0, 0]
 
         fingers = []
 
@@ -94,9 +97,13 @@ class HandTracker:
         else:
             fingers.append(1 if landmarks[4][1] > landmarks[3][1] else 0)
 
-        # Index, Middle, Ring, Pinky
+        # Tolerance added to reduce false idle
+        tolerance = 12
+
         for tip_id in [8, 12, 16, 20]:
-            fingers.append(1 if landmarks[tip_id][2] < landmarks[tip_id - 2][2] else 0)
+            tip_y = landmarks[tip_id][2]
+            pip_y = landmarks[tip_id - 2][2]
+            fingers.append(1 if tip_y < pip_y - tolerance else 0)
 
         return fingers
 
@@ -109,3 +116,15 @@ class HandTracker:
                 up_names.append(names[i])
 
         return up_names
+
+    def distance(self, p1, p2, landmarks):
+        if len(landmarks) != 21:
+            return 9999
+
+        x1, y1 = landmarks[p1][1], landmarks[p1][2]
+        x2, y2 = landmarks[p2][1], landmarks[p2][2]
+        return math.hypot(x2 - x1, y2 - y1)
+
+    def is_pinching(self, landmarks, threshold=35):
+        # thumb tip = 4, index tip = 8
+        return self.distance(4, 8, landmarks) < threshold
