@@ -20,9 +20,11 @@ def main():
 
     draw_color = (0, 0, 255)
     brush_thickness = 7
+    eraser_thickness = 28
     smoothing = 3
 
     last_time = 0
+    clear_cooldown = 0
 
     while True:
         success, frame = cap.read()
@@ -53,6 +55,7 @@ def main():
             if up_finger_names:
                 finger_text = ", ".join(up_finger_names)
 
+            # index fingertip
             x, y = landmarks[8][1], landmarks[8][2]
 
             if smooth_x == 0 and smooth_y == 0:
@@ -63,7 +66,7 @@ def main():
 
             cv2.circle(frame, (smooth_x, smooth_y), 8, (0, 0, 255), cv2.FILLED)
 
-            # DRAW MODE: Index + Middle only
+            # DRAW MODE -> Index + Middle
             if fingers == [0, 1, 1, 0, 0]:
                 mode_text = "DRAW"
 
@@ -78,16 +81,44 @@ def main():
                     brush_thickness,
                     cv2.LINE_AA
                 )
-
-                # Fill small gaps between segments
                 cv2.circle(canvas, (smooth_x, smooth_y), brush_thickness // 2, draw_color, cv2.FILLED)
                 cv2.circle(canvas, (prev_x, prev_y), brush_thickness // 2, draw_color, cv2.FILLED)
 
                 prev_x, prev_y = smooth_x, smooth_y
 
-            # AIM MODE: only index finger
+            # AIM MODE -> Index only
             elif fingers == [0, 1, 0, 0, 0]:
                 mode_text = "AIM"
+                prev_x, prev_y = 0, 0
+
+            # ERASE MODE -> Middle only
+            elif fingers == [0, 0, 1, 0, 0]:
+                mode_text = "ERASE"
+
+                if prev_x == 0 and prev_y == 0:
+                    prev_x, prev_y = smooth_x, smooth_y
+
+                cv2.line(
+                    canvas,
+                    (prev_x, prev_y),
+                    (smooth_x, smooth_y),
+                    (0, 0, 0),
+                    eraser_thickness,
+                    cv2.LINE_AA
+                )
+                cv2.circle(canvas, (smooth_x, smooth_y), eraser_thickness // 2, (0, 0, 0), cv2.FILLED)
+                cv2.circle(frame, (smooth_x, smooth_y), eraser_thickness // 2, (255, 255, 255), 2)
+
+                prev_x, prev_y = smooth_x, smooth_y
+
+            # CLEAR MODE -> All fingers up
+            elif fingers == [1, 1, 1, 1, 1]:
+                mode_text = "CLEAR"
+
+                if current_time - clear_cooldown > 1.0:
+                    canvas = frame.copy() * 0
+                    clear_cooldown = current_time
+
                 prev_x, prev_y = 0, 0
 
             else:
@@ -109,7 +140,7 @@ def main():
             fps = 1 / (current_time - last_time)
         last_time = current_time
 
-        cv2.rectangle(frame, (10, 10), (500, 170), (20, 20, 20), -1)
+        cv2.rectangle(frame, (10, 10), (560, 185), (20, 20, 20), -1)
 
         cv2.putText(
             frame,
@@ -144,7 +175,7 @@ def main():
         cv2.putText(
             frame,
             f"FPS: {int(fps)}",
-            (380, 110),
+            (430, 110),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
             (200, 200, 200),
@@ -153,10 +184,20 @@ def main():
 
         cv2.putText(
             frame,
-            "Index = Aim | Index+Middle = Draw | C = Clear | Q = Quit",
-            (10, 470),
+            "Index=Aim | Index+Middle=Draw | Middle=Erase",
+            (20, 145),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.56,
+            0.58,
+            (255, 255, 255),
+            2
+        )
+
+        cv2.putText(
+            frame,
+            "All fingers=Clear | C=Clear | Q=Quit",
+            (20, 172),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.58,
             (255, 255, 255),
             2
         )
